@@ -1810,7 +1810,7 @@ static void insert_candidates(struct sdp_chopper *chop, struct packet_stream *rt
 	}
 }
 
-static void insert_dtls(struct call_media *media, struct sdp_chopper *chop) {
+static void insert_dtls(struct call_media *media, struct sdp_chopper *chop, struct sdp_ng_flags *flags) {
 	char hexbuf[DTLS_MAX_DIGEST_LEN * 3 + 2];
 	unsigned char *p;
 	char *o;
@@ -1839,6 +1839,8 @@ static void insert_dtls(struct call_media *media, struct sdp_chopper *chop) {
 		actpass = "passive";
 	else if (MEDIA_ISSET(media, SETUP_ACTIVE))
 		actpass = "active";
+	else if (flags->dtls_passive)
+		actpass = "passive";
 
 	chopper_append_c(chop, "a=setup:");
 	chopper_append_c(chop, actpass);
@@ -2017,7 +2019,7 @@ int sdp_replace(struct sdp_chopper *chop, GQueue *sessions, struct call_monologu
 				ps_rtcp = NULL;
 
 			insert_crypto(call_media, chop);
-			insert_dtls(call_media, chop);
+			insert_dtls(call_media, chop, flags);
 
 			if (MEDIA_ISSET(call_media, ICE) && call_media->ice_agent) {
 				chopper_append_c(chop, "a=ice-ufrag:");
