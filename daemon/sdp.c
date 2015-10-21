@@ -1861,6 +1861,9 @@ static void insert_crypto(struct call_media *media, struct sdp_chopper *chop) {
 	if (!cp->crypto_suite || !MEDIA_ISSET(media, SDES) || MEDIA_ISSET(media, PASSTHRU))
 		return;
 
+	if (MEDIA_ISSET(media, DTLS))
+		return;
+
 	p = b64_buf;
 	p += g_base64_encode_step((unsigned char *) cp->master_key,
 			cp->crypto_suite->master_key_len, 0,
