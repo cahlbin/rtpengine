@@ -2,6 +2,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <errno.h>
 
 #include "obj.h"
 #include "poller.h"
@@ -208,7 +209,11 @@ send_only:
 	iov[2].iov_base = to_send->s;
 	iov[2].iov_len = to_send->len;
 
-	sendmsg(c->udp_listener.fd, &mh, 0);
+    if(sendmsg(c->udp_listener.fd, &mh, 0) < 0) {
+        if(EAFNOSUPPORT == errno){
+            ilog(LOG_ERR,"sendmsg(3) failed with EAFNOSUPPORT (setsockopt(fd, IPV6_V6ONLY, ...) may not be supported by the platform");
+        }
+    }
 
 	if (resp)
 		cookie_cache_insert(&c->cookie_cache, &cookie, &reply);
