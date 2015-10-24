@@ -74,6 +74,7 @@
          'OTHER_CFLAGS': ['<@(cflags_common)'],
          'ALWAYS_SEARCH_USER_PATHS': 'NO',
          'DEBUG_INFORMATION_FORMAT': 'dwarf-with-dsym',
+         'CODE_SIGN_IDENTITY': 'Developer ID Application',
      },
   },
   'targets': [
