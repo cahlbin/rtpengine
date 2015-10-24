@@ -14,6 +14,9 @@
 #define BSDB(x...) ((void)0)
 #endif
 
+#ifndef MIN_THREAD_STACK_SIZE
+#define MIN_THREAD_STACK_SIZE 1024*1024
+#endif
 
 
 
@@ -155,6 +158,13 @@ static int thread_create(void *(*func)(void *), void *arg, int joinable, pthread
 		abort();
 	if (pthread_attr_setdetachstate(&att, joinable ? PTHREAD_CREATE_JOINABLE : PTHREAD_CREATE_DETACHED))
 		abort();
+    size_t stack_size = 0;
+    if(pthread_attr_getstacksize(&att, &stack_size))
+        abort();
+    if(stack_size < MIN_THREAD_STACK_SIZE){
+        if(pthread_attr_setstacksize(&att, MIN_THREAD_STACK_SIZE))
+            abort();
+    }
 	ret = pthread_create(&thr, &att, func, arg);
 	pthread_attr_destroy(&att);
 	if (ret)

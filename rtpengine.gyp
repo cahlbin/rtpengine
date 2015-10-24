@@ -3,6 +3,7 @@
     'cflags_common': [
         '-std=gnu99',
         '-pthread',
+        '-fstack-protector-all',
         '-fno-strict-aliasing',
         
         '-Wall',
@@ -72,6 +73,7 @@
      'xcode_settings': {
          'OTHER_CFLAGS': ['<@(cflags_common)'],
          'ALWAYS_SEARCH_USER_PATHS': 'NO',
+         'DEBUG_INFORMATION_FORMAT': 'dwarf-with-dsym',
      },
   },
   'targets': [
