@@ -6,7 +6,14 @@
 #include <zlib.h>
 #include <openssl/hmac.h>
 #include <glib.h>
+
+#ifdef __APPLE__
+#include <libkern/OSByteOrder.h>
+#define be64toh(x) OSSwapBigToHostInt64(x)
+#define htobe64(x) OSSwapHostToBigInt64(x)
+#else
 #include <endian.h>
+#endif
 
 #include "compat.h"
 #include "str.h"

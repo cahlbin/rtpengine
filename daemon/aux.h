@@ -60,6 +60,16 @@ G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gint));                     \
 #define NUM_THREAD_BUFS		8
 
 
+#if defined(__APPLE__) || defined(__darwin__)
+#define IPV6_PKTINFO IPV6_2292PKTINFO
+#define IPV6_RECVPKTINFO IP_RECVPKTINFO
+#ifndef s6_addr16
+#define s6_addr16 __u6_addr.__u6_addr16
+#endif
+#ifndef s6_addr32
+#define s6_addr32 __u6_addr.__u6_addr32
+#endif
+#endif
 
 
 /*** TYPES ***/

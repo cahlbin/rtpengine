@@ -1,1 +1,10 @@
 .*.sw?
+gyp/
+*.xcodeproj/
+*.xcworkspace/
+out/
+build/
+vendor/
+openssl-*
+.depend.brew
+

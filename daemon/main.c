@@ -5,6 +5,10 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <sys/socket.h>
+#ifdef __APPLE__
+#include <mach/clock.h>
+#include <mach/mach.h>
+#endif
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
@@ -89,6 +93,14 @@ static int delete_delay = 30;
 static u_int32_t graphite_ip = 0;
 static u_int16_t graphite_port;
 static int graphite_interval = 0;
+
+#ifdef __APPLE__
+static int sigtimedwait(const sigset_t *ss,siginfo_t *si, const struct timespec *ts) {
+    nanosleep(ts, NULL);
+	errno = EAGAIN;
+	return -1;
+}
+#endif
 
 static void sighandler(gpointer x) {
 	sigset_t ss;
@@ -447,13 +459,24 @@ static void make_OpenSSL_thread_safe(void) {
 	CRYPTO_set_locking_callback(cb_openssl_lock);
 }
 
+static long get_random_seed() {
+#ifdef __APPLE__
+	clock_serv_t clock;
+	mach_timespec_t ts;
+	host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &clock);
+	clock_get_time(clock, &ts);
+	mach_port_deallocate(mach_task_self(), clock);
+	return ts.tv_sec ^ ts.tv_nsec;
+#else
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	return ts.tv_sec ^ ts.tv_nsec;
+#endif
+}
 
 static void init_everything() {
-	struct timespec ts;
-
 	log_init();
-	clock_gettime(CLOCK_REALTIME, &ts);
-	srandom(ts.tv_sec ^ ts.tv_nsec);
+	srandom(get_random_seed());
 	SSL_library_init();
 	SSL_load_error_strings();
 	make_OpenSSL_thread_safe();

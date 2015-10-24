@@ -113,6 +113,11 @@ static void cert_free(void *p) {
 		X509_free(cert->x509);
 }
 
+#ifdef __APPLE__
+static void dump_cert(struct dtls_cert *cert) {
+  // noop
+}
+#else
 static void buf_dump_free(char *buf, size_t len) {
 	char *p, *f;
 	int llen;
@@ -158,6 +163,7 @@ static void dump_cert(struct dtls_cert *cert) {
 	ilog(LOG_DEBUG, "Dump of DTLS private key:");
 	buf_dump_free(buf, len);
 }
+#endif // __APPLE__
 
 static int cert_init() {
 	X509 *x509 = NULL;

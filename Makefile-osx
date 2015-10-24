@@ -1,0 +1,63 @@
+.PHONY: clean deps projects
+
+NINJA_PROJECT_FILE = out/Debug/build.ninja
+COMPDB=out/Debug/compile_commands.json
+XCODE_PROJECT_FILE = rtpengine.xcodeproj/project.pbxproj
+GYP = vendor/gyp/gyp
+
+BREW_DEPS_DIR=.depend.brew
+BREW_DEPS_NAMES=glib pcre hiredis xmlrpc-c
+BREW_DEPS = $(patsubst %, $(BREW_DEPS_DIR)/%, $(BREW_DEPS_NAMES))
+
+VENDOR_PREFIX_DIR=vendor/usr/local
+
+OPENSSL_BASE_URL=https://www.openssl.org/source
+OPENSSL_NAME=openssl-1.0.2d
+OPENSSL_TAR_FILE=$(OPENSSL_NAME).tar.gz
+
+clean:
+	rm -rf out
+	rm -f $(XCODE_PROJECT_FILE)
+
+$(BREW_DEPS_DIR) out vendor $(VENDOR_PREFIX_DIR):
+	mkdir -p $@
+
+$(BREW_DEPS_DIR)/%: $(BREW_DEPS_DIR)
+	brew install $*
+	touch $@
+
+$(OPENSSL_TAR_FILE):
+	curl -O $(OPENSSL_BASE_URL)/$(OPENSSL_TAR_FILE)
+
+$(OPENSSL_NAME)/Configure: | $(OPENSSL_TAR_FILE)
+	tar -xzf $(OPENSSL_TAR_FILE)
+
+$(VENDOR_PREFIX_DIR)/lib/libssl.a: $(OPENSSL_NAME)/Configure $(VENDOR_PREFIX_DIR)
+	pushd $(dir $<) && \
+		./Configure darwin64-x86_64-cc \
+						--prefix=$(realpath $(VENDOR_PREFIX_DIR)) \
+						--openssldir=$(realpath $(VENDOR_PREFIX_DIR)/openssl) \
+						threads \
+						no-shared \
+						zlib-dynamic \
+						enable-srtp \
+						enable-dtls
+	pushd $(dir $<) && make && make install
+
+deps: $(BREW_DEPS) $(VENDOR_PREFIX_DIR)/lib/libssl.a
+
+$(GYP):
+	git clone https://chromium.googlesource.com/external/gyp.git vendor/gyp
+
+$(NINJA_PROJECT_FILE): $(GYP)
+	vendor/gyp/gyp --depth . rtpengine.gyp  -f ninja
+
+$(COMPDB): $(NINJA_PROJECT_FILE)
+	ninja -C $(dir $@) -t compdb c cc > $@
+
+$(XCODE_PROJECT_FILE): $(GYP)
+	vendor/gyp/gyp --depth . rtpengine.gyp  -f xcode
+
+projects: $(NINJA_PROJECT_FILE) $(COMPDB) $(XCODE_PROJECT_FILE)
+
+
