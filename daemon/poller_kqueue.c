@@ -9,7 +9,7 @@
 #include <time.h>
 #include <assert.h>
 #include <errno.h>
-#include <sys/epoll.h>
+#include <sys/event.h>
 #include <glib.h>
 #include <sys/time.h>
 
@@ -56,7 +56,7 @@ struct poller *poller_new(void) {
 	p = malloc(sizeof(*p));
 	memset(p, 0, sizeof(*p));
 	gettimeofday(&g_now, NULL);
-	p->fd = epoll_create1(0);
+	p->fd = kqueue();
 	if (p->fd == -1)
 		abort();
 	mutex_init(&p->lock);
@@ -67,12 +67,11 @@ struct poller *poller_new(void) {
 }
 
 
-static int epoll_events(struct poller_item *it, struct poller_item_int *ii) {
+static int kqueue_filter(struct poller_item *it, struct poller_item_int *ii) {
 	if (!it)
 		it = &ii->item;
-	return EPOLLHUP | EPOLLERR | EPOLLET |
-		((it->writeable && ii && ii->blocked) ? EPOLLOUT : 0) |
-		(it->readable ? EPOLLIN : 0);
+	return ((it->writeable && ii && ii->blocked) ? EVFILT_WRITE : 0) |
+		(it->readable ? EVFILT_READ : 0);
 }
 
 
@@ -94,7 +93,7 @@ static void poller_item_free(void *p) {
 static int __poller_add_item(struct poller *p, struct poller_item *i, int has_lock) {
 	struct poller_item_int *ip;
 	unsigned int u;
-	struct epoll_event e;
+    struct kevent e;
 
 	if (!p || !i)
 		goto fail_lock;
@@ -112,9 +111,9 @@ static int __poller_add_item(struct poller *p, struct poller_item *i, int has_lo
 		goto fail;
 
 	ZERO(e);
-	e.events = epoll_events(i, NULL);
-	e.data.fd = i->fd;
-	if (epoll_ctl(p->fd, EPOLL_CTL_ADD, i->fd, &e))
+    int kfilter = kqueue_filter(i, NULL);
+    EV_SET(&e, i->fd, kfilter, EV_ADD | EV_CLEAR, 0, 0, NULL);
+	if (kevent(p->fd, &e, 1, NULL, 0, NULL))
 		abort();
 
 	if (i->fd >= p->items_size) {
@@ -166,7 +165,10 @@ int poller_del_item(struct poller *p, int fd) {
 	if (!p->items || !(it = p->items[fd]))
 		goto fail;
 
-	if (epoll_ctl(p->fd, EPOLL_CTL_DEL, fd, NULL))
+    int kfilter = kqueue_filter(NULL, it);
+    struct kevent e;
+    EV_SET(&e, fd, kfilter, EV_DELETE, 0, 0, NULL);
+	if (kevent(p->fd, &e, 1, NULL, 0, NULL))
 		abort();
 
 	p->items[fd] = NULL; /* stealing the ref */
@@ -282,11 +284,11 @@ static void poller_timers_run(struct poller *p) {
 	mutex_unlock(&p->timers_lock);
 }
 
-
-int poller_poll(struct poller *p, int timeout) {
+int poller_poll(struct poller *p, int timeout_ms) {
 	int ret, i;
 	struct poller_item_int *it;
-	struct epoll_event evs[128], *ev, e;
+    struct kevent evs[128], *ev, e;
+    struct timespec timeout = { 0, timeout_ms * 1000000 };
 
 	if (!p)
 		return -1;
@@ -299,7 +301,7 @@ int poller_poll(struct poller *p, int timeout) {
 
 	mutex_unlock(&p->lock);
 	errno = 0;
-	ret = epoll_wait(p->fd, evs, sizeof(evs) / sizeof(*evs), timeout);
+    ret = kevent(p->fd, NULL, 0, &evs[0], sizeof(evs) / sizeof(*evs), &timeout);
 	mutex_lock(&p->lock);
 
 	if (errno == EINTR)
@@ -314,10 +316,10 @@ int poller_poll(struct poller *p, int timeout) {
 	for (i = 0; i < ret; i++) {
 		ev = &evs[i];
 
-		if (ev->data.fd < 0)
+		if ((int)(ev->ident) < 0)
 			continue;
 
-		it = (ev->data.fd < p->items_size) ? p->items[ev->data.fd] : NULL;
+		it = (ev->ident < p->items_size) ? p->items[ev->ident] : NULL;
 		if (!it)
 			continue;
 
@@ -329,24 +331,17 @@ int poller_poll(struct poller *p, int timeout) {
 			goto next;
 		}
 
-		if ((ev->events & (POLLERR | POLLHUP)))
+		if ((ev->flags & EV_EOF) || (ev->flags & EV_ERROR))
 			it->item.closed(it->item.fd, it->item.obj, it->item.uintp);
-		else if ((ev->events & POLLOUT)) {
+		else if (ev->filter == EVFILT_WRITE) {
 			mutex_lock(&p->lock);
 			it->blocked = 0;
-
-			ZERO(e);
-			e.events = epoll_events(NULL, it);
-			e.data.fd = it->item.fd;
-			if (epoll_ctl(p->fd, EPOLL_CTL_MOD, it->item.fd, &e))
-				abort();
-
 			mutex_unlock(&p->lock);
 			it->item.writeable(it->item.fd, it->item.obj, it->item.uintp);
 		}
-		else if ((ev->events & POLLIN))
+		else if (ev->filter == EVFILT_READ)
 			it->item.readable(it->item.fd, it->item.obj, it->item.uintp);
-		else if (!ev->events)
+		else if (!ev->filter)
 			goto next;
 		else
 			abort();
@@ -364,8 +359,6 @@ out:
 
 
 void poller_blocked(struct poller *p, int fd) {
-	struct epoll_event e;
-
 	if (!p || fd < 0)
 		return;
 
@@ -379,12 +372,6 @@ void poller_blocked(struct poller *p, int fd) {
 		goto fail;
 
 	p->items[fd]->blocked = 1;
-
-	ZERO(e);
-	e.events = epoll_events(NULL, p->items[fd]);
-	e.data.fd = fd;
-	if (epoll_ctl(p->fd, EPOLL_CTL_MOD, fd, &e))
-		abort();
 
 fail:
 	mutex_unlock(&p->lock);
